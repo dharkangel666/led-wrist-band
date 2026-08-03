@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <title>LED Wrist Band Sim</title>
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta name="sim-build" content="2026-08-03-wrist-native" />
+  <style>
+    :root {
+      --bg: #12141a;
+      --panel: #1c2029;
+      --ink: #e8e6e1;
+      --muted: #9a958c;
+      --accent: #6ec8ff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Avenir Next", "Segoe UI", sans-serif;
+      background:
+        radial-gradient(ellipse at 30% 20%, #2a2438 0%, transparent 50%),
+        radial-gradient(ellipse at 70% 80%, #1a2838 0%, transparent 45%),
+        var(--bg);
+      color: var(--ink);
+      display: grid;
+      grid-template-columns: 1fr 320px;
+      gap: 0;
+    }
+    @media (max-width: 900px) { body { grid-template-columns: 1fr; } }
+    .stage {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px 16px 40px;
+      min-height: 100vh;
+    }
+    h1 { margin: 0 0 8px; font-weight: 600; font-size: 1.35rem; letter-spacing: 0.02em; }
+    .sub {
+      margin: 0 0 20px;
+      color: var(--muted);
+      font-size: 0.9rem;
+      text-align: center;
+      max-width: 420px;
+    }
+    canvas {
+      width: min(92vw, 520px);
+      height: auto;
+      max-width: 100%;
+      border-radius: 16px;
+      background: linear-gradient(160deg, #252830, #171a22);
+      box-shadow: 0 20px 60px rgba(0,0,0,0.45);
+      touch-action: manipulation;
+    }
+    .mobile-presets {
+      display: none;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: center;
+      margin: 0 0 14px;
+      max-width: min(92vw, 520px);
+    }
+    .mic-gate {
+      position: absolute;
+      inset: 0;
+      z-index: 5;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(10, 12, 18, 0.72);
+      cursor: pointer;
+      padding: 24px;
+    }
+    .mic-gate.show { display: flex; }
+    .mic-gate-card {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      align-items: center;
+      text-align: center;
+      background: #1c2430;
+      border: 1px solid var(--accent);
+      border-radius: 14px;
+      padding: 22px 26px;
+      max-width: 280px;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.45);
+    }
+    .mic-gate-card strong { font-size: 1.15rem; color: #fff; }
+    .mic-gate-card span { font-size: 0.85rem; color: var(--muted); line-height: 1.35; }
+    @media (max-width: 900px) {
+      .mobile-presets { display: flex; }
+      body { min-height: 100dvh; }
+      .stage { min-height: auto; padding-top: 16px; }
+    }
+    .panel {
+      background: var(--panel);
+      border-left: 1px solid #2e3440;
+      padding: 28px 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      min-height: 100vh;
+      overflow-y: auto;
+    }
+    @media (max-width: 900px) {
+      .panel { border-left: none; border-top: 1px solid #2e3440; min-height: auto; }
+    }
+    .panel h2 {
+      margin: 0;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--muted);
+    }
+    label {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 6px 10px;
+      font-size: 0.88rem;
+      align-items: center;
+    }
+    label span.val {
+      color: var(--accent);
+      font-variant-numeric: tabular-nums;
+      font-size: 0.8rem;
+    }
+    input[type="range"] {
+      grid-column: 1 / -1;
+      width: 100%;
+      accent-color: var(--accent);
+    }
+    .row { display: flex; flex-wrap: wrap; gap: 8px; }
+    button {
+      appearance: none;
+      border: 1px solid #3a4252;
+      background: #262b36;
+      color: var(--ink);
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 0.85rem;
+      cursor: pointer;
+      touch-action: manipulation;
+    }
+    button:hover { border-color: var(--accent); }
+    button.active {
+      background: #2a4058;
+      border-color: var(--accent);
+      color: #fff;
+    }
+    .hint { margin: 0; font-size: 0.78rem; line-height: 1.45; color: var(--muted); }
+    .meter-wrap {
+      position: relative;
+      height: 10px;
+      border-radius: 6px;
+      background: #12151c;
+      overflow: hidden;
+      border: 1px solid #2e3440;
+    }
+    .meter-fill {
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 0%;
+      background: linear-gradient(90deg, #3d8, #6ec8ff);
+      transition: width 50ms linear;
+    }
+  </style>
+</head>
+<body>
+  <div class="stage">
+    <h1>LED Wrist Band</h1>
+    <p class="sub">Cylinder jewelry looks — orbit, heartbeat, scanner, ripple. Own concept, not jacket ports.</p>
+    <div class="mobile-presets" id="mobilePresets"></div>
+    <div id="micGate" class="mic-gate" role="button" tabindex="0">
+      <div class="mic-gate-card">
+        <strong>Tap to enable mic</strong>
+        <span>Required on iPhone — then allow microphone access</span>
+      </div>
+    </div>
+    <canvas id="c" width="640" height="720" aria-label="Wrist band LED simulation"></canvas>
+  </div>
+
+  <aside class="panel">
+    <h2>Firmware presets</h2>
+    <p class="hint">Short-press cycle on the real band. Sliders below are design-only.</p>
+    <div class="row" id="presetRow"></div>
+
+    <h2>Grid</h2>
+    <label>Rows <span class="val" id="vRows">8</span>
+      <input id="rows" type="range" min="1" max="8" value="8" />
+    </label>
+    <label>LEDs / row <span class="val" id="vCols">24</span>
+      <input id="cols" type="range" min="8" max="36" value="24" />
+    </label>
+    <p class="hint" id="gridHint">8 × 24 = 192 LEDs</p>
+
+    <h2>Layout</h2>
+    <div class="row" id="layoutRow">
+      <button type="button" data-layout="orbit" class="active">Orbit</button>
+      <button type="button" data-layout="twins">Twins</button>
+      <button type="button" data-layout="heartbeat">Heartbeat</button>
+      <button type="button" data-layout="scanner">Scanner</button>
+      <button type="button" data-layout="ripple">Ripple</button>
+      <button type="button" data-layout="ember">Ember</button>
+      <button type="button" data-layout="aurora">Aurora</button>
+    </div>
+
+    <h2>Color</h2>
+    <div class="row" id="colorRow">
+      <button type="button" data-color="fixed">Fixed</button>
+      <button type="button" data-color="cycle">Cycle</button>
+      <button type="button" data-color="rainbow">Rainbow</button>
+      <button type="button" data-color="dual" class="active">Dual</button>
+    </div>
+    <label>Fixed / A hue <span class="val" id="vFixedHue">200°</span>
+      <input id="fixedHue" type="range" min="0" max="360" value="200" />
+    </label>
+    <label>Hue speed <span class="val" id="vHueSpeed">35%</span>
+      <input id="hueSpeed" type="range" min="0" max="100" value="35" />
+    </label>
+
+    <h2>Motion</h2>
+    <label>Floor <span class="val" id="vFloor">4%</span>
+      <input id="floor" type="range" min="0" max="20" value="4" />
+    </label>
+    <label>Orbit speed <span class="val" id="vOrbitSpeed">40%</span>
+      <input id="orbitSpeed" type="range" min="0" max="100" value="40" />
+    </label>
+    <label>Pulse speed <span class="val" id="vPulseSpeed">35%</span>
+      <input id="pulseSpeed" type="range" min="0" max="100" value="35" />
+    </label>
+    <label>Brightness <span class="val" id="vBright">55%</span>
+      <input id="bright" type="range" min="10" max="100" value="55" />
+    </label>
+
+    <h2>Audio</h2>
+    <div class="row" id="bassSourceRow">
+      <button type="button" id="btnBassMic">Mic</button>
+      <button type="button" id="btnBassDemo" class="active">Demo beat</button>
+    </div>
+    <div class="meter-wrap"><div class="meter-fill" id="micMeter"></div></div>
+    <p class="hint" id="micStatus">Demo beat ~120 BPM</p>
+
+    <p class="hint" style="margin-top:auto">
+      Design tool — firmware hides sliders behind presets. See <code>FIRMWARE-EFFECTS.md</code>.
+    </p>
+  </aside>
+
+  <script>
+(() => {
+  const canvas = document.getElementById("c");
+  const ctx = canvas.getContext("2d");
+
+  const PRESETS = [
+    { id: "orbit", name: "Orbit", layout: "orbit", color: "fixed", floor: 4, hueSpeed: 0, orbitSpeed: 42, pulseSpeed: 30, fixedHue: 200, dim: false },
+    { id: "twins", name: "Twins", layout: "twins", color: "dual", floor: 3, hueSpeed: 25, orbitSpeed: 48, pulseSpeed: 30, fixedHue: 200, dim: false },
+    { id: "heartbeat", name: "Heartbeat", layout: "heartbeat", color: "cycle", floor: 8, hueSpeed: 18, orbitSpeed: 10, pulseSpeed: 55, fixedHue: 330, dim: false },
+    { id: "scanner", name: "Scanner", layout: "scanner", color: "fixed", floor: 3, hueSpeed: 0, orbitSpeed: 55, pulseSpeed: 20, fixedHue: 185, dim: false },
+    { id: "ripple", name: "Ripple", layout: "ripple", color: "rainbow", floor: 4, hueSpeed: 40, orbitSpeed: 20, pulseSpeed: 40, fixedHue: 200, dim: false },
+    { id: "ember", name: "Ember", layout: "ember", color: "fixed", floor: 5, hueSpeed: 12, orbitSpeed: 18, pulseSpeed: 25, fixedHue: 25, dim: false },
+    { id: "party", name: "Party", layout: "twins", color: "dual", floor: 3, hueSpeed: 55, orbitSpeed: 60, pulseSpeed: 50, fixedHue: 280, dim: false },
+    { id: "off", name: "Off / dim", layout: "orbit", color: "fixed", floor: 2, hueSpeed: 0, orbitSpeed: 0, pulseSpeed: 0, fixedHue: 200, dim: true },
+  ];
+
+  const el = {
+    rows: document.getElementById("rows"),
+    cols: document.getElementById("cols"),
+    vRows: document.getElementById("vRows"),
+    vCols: document.getElementById("vCols"),
+    gridHint: document.getElementById("gridHint"),
+    floor: document.getElementById("floor"),
+    vFloor: document.getElementById("vFloor"),
+    orbitSpeed: document.getElementById("orbitSpeed"),
+    vOrbitSpeed: document.getElementById("vOrbitSpeed"),
+    pulseSpeed: document.getElementById("pulseSpeed"),
+    vPulseSpeed: document.getElementById("vPulseSpeed"),
+    bright: document.getElementById("bright"),
+    vBright: document.getElementById("vBright"),
+    hueSpeed: document.getElementById("hueSpeed"),
+    vHueSpeed: document.getElementById("vHueSpeed"),
+    fixedHue: document.getElementById("fixedHue"),
+    vFixedHue: document.getElementById("vFixedHue"),
+    micMeter: document.getElementById("micMeter"),
+    micStatus: document.getElementById("micStatus"),
+    micGate: document.getElementById("micGate"),
+    btnBassMic: document.getElementById("btnBassMic"),
+    btnBassDemo: document.getElementById("btnBassDemo"),
+    presetRow: document.getElementById("presetRow"),
+    mobilePresets: document.getElementById("mobilePresets"),
+  };
+
+  const state = {
+    rows: 8,
+    cols: 24,
+    layout: "orbit",
+    color: "dual",
+    floor: 0.04,
+    orbitSpeed: 0.4,
+    pulseSpeed: 0.35,
+    brightness: 0.55,
+    hueSpeed: 0.35,
+    fixedHue: 200,
+    bassSource: "demo",
+    preset: "twins",
+    dim: false,
+    orbit: 0,
+    pulse: 0,
+    huePhase: 0,
+    bass: 0,
+    mids: 0,
+    highs: 0,
+    kick: 0,
+    ripples: [],
+    emberPhase: 0,
+    lastKick: 0,
+    lastT: performance.now(),
+  };
+
+  let audioCtx = null;
+  let analyser = null;
+  let freqData = null;
+
+  function hsvToRgb(h, s, v) {
+    h = ((h % 360) + 360) % 360;
+    const c = v * s;
+    const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+    const m = v - c;
+    let r = 0, g = 0, b = 0;
+    if (h < 60) [r, g, b] = [c, x, 0];
+    else if (h < 120) [r, g, b] = [x, c, 0];
+    else if (h < 180) [r, g, b] = [0, c, x];
+    else if (h < 240) [r, g, b] = [0, x, c];
+    else if (h < 300) [r, g, b] = [x, 0, c];
+    else [r, g, b] = [c, 0, x];
+    return [Math.round((r + m) * 255), Math.round((g + m) * 255), Math.round((b + m) * 255)];
+  }
+
+  function angDist(a, b, n) {
+    const d = Math.abs(a - b);
+    return Math.min(d, n - d);
+  }
+
+  function setActiveGroup(row, attr, value) {
+    row.querySelectorAll("button").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset[attr] === value);
+    });
+  }
+
+  function applyPreset(p) {
+    state.preset = p.id;
+    state.layout = p.layout;
+    state.color = p.color;
+    state.floor = p.floor / 100;
+    state.hueSpeed = p.hueSpeed / 100;
+    state.orbitSpeed = p.orbitSpeed / 100;
+    state.pulseSpeed = p.pulseSpeed / 100;
+    state.fixedHue = p.fixedHue;
+    state.dim = !!p.dim;
+    el.floor.value = p.floor;
+    el.hueSpeed.value = p.hueSpeed;
+    el.orbitSpeed.value = p.orbitSpeed;
+    el.pulseSpeed.value = p.pulseSpeed;
+    el.fixedHue.value = p.fixedHue;
+    syncLabels();
+    setActiveGroup(document.getElementById("layoutRow"), "layout", state.layout);
+    setActiveGroup(document.getElementById("colorRow"), "color", state.color);
+    document.querySelectorAll("[data-preset]").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.preset === p.id);
+    });
+  }
+
+  function buildPresetButtons() {
+    for (const p of PRESETS) {
+      for (const parent of [el.presetRow, el.mobilePresets]) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.textContent = p.name;
+        btn.dataset.preset = p.id;
+        if (p.id === state.preset) btn.classList.add("active");
+        btn.addEventListener("click", () => applyPreset(p));
+        parent.appendChild(btn);
+      }
+    }
+  }
+
+  function syncLabels() {
+    state.rows = +el.rows.value;
+    state.cols = +el.cols.value;
+    state.floor = +el.floor.value / 100;
+    state.orbitSpeed = +el.orbitSpeed.value / 100;
+    state.pulseSpeed = +el.pulseSpeed.value / 100;
+    state.brightness = +el.bright.value / 100;
+    state.hueSpeed = +el.hueSpeed.value / 100;
+    state.fixedHue = +el.fixedHue.value;
+    el.vRows.textContent = state.rows;
+    el.vCols.textContent = state.cols;
+    el.gridHint.textContent = `${state.rows} × ${state.cols} = ${state.rows * state.cols} LEDs`;
+    el.vFloor.textContent = `${el.floor.value}%`;
+    el.vOrbitSpeed.textContent = `${el.orbitSpeed.value}%`;
+    el.vPulseSpeed.textContent = `${el.pulseSpeed.value}%`;
+    el.vBright.textContent = `${el.bright.value}%`;
+    el.vHueSpeed.textContent = `${el.hueSpeed.value}%`;
+    el.vFixedHue.textContent = `${el.fixedHue.value}°`;
+  }
+
+  ["rows", "cols", "floor", "orbitSpeed", "pulseSpeed", "bright", "hueSpeed", "fixedHue"].forEach((id) => {
+    el[id].addEventListener("input", syncLabels);
+  });
+
+  document.getElementById("layoutRow").addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-layout]");
+    if (!btn) return;
+    state.layout = btn.dataset.layout;
+    setActiveGroup(document.getElementById("layoutRow"), "layout", state.layout);
+  });
+
+  document.getElementById("colorRow").addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-color]");
+    if (!btn) return;
+    state.color = btn.dataset.color;
+    setActiveGroup(document.getElementById("colorRow"), "color", state.color);
+  });
+
+  async function enableMic() {
+    try {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === "suspended") await audioCtx.resume();
+      const micStream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+      });
+      const src = audioCtx.createMediaStreamSource(micStream);
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 1024;
+      analyser.smoothingTimeConstant = 0.65;
+      src.connect(analyser);
+      freqData = new Uint8Array(analyser.frequencyBinCount);
+      state.bassSource = "mic";
+      el.btnBassMic.classList.add("active");
+      el.btnBassDemo.classList.remove("active");
+      el.micGate.classList.remove("show");
+      el.micStatus.textContent = "Mic on — relative bass / kick";
+    } catch {
+      el.micStatus.textContent = "Mic failed — using demo beat";
+      state.bassSource = "demo";
+      el.micGate.classList.remove("show");
+    }
+  }
+
+  el.btnBassMic.addEventListener("click", () => {
+    if (state.bassSource === "mic") return;
+    el.micGate.classList.add("show");
+  });
+  el.btnBassDemo.addEventListener("click", () => {
+    state.bassSource = "demo";
+    el.btnBassDemo.classList.add("active");
+    el.btnBassMic.classList.remove("active");
+    el.micGate.classList.remove("show");
+    el.micStatus.textContent = "Demo beat ~120 BPM";
+  });
+  el.micGate.addEventListener("click", enableMic);
+
+  function tickAudio(now) {
+    if (state.bassSource === "demo") {
+      const period = 500;
+      const ph = now % period;
+      state.kick = ph < 70 ? 1 - ph / 70 : 0;
+      const swell = 0.35 + 0.25 * (0.5 + 0.5 * Math.sin(now / 180));
+      state.bass = Math.max(state.kick, swell * 0.55);
+      state.mids = 0.35 + 0.2 * Math.sin(now / 140);
+      state.highs = 0.2 + 0.15 * Math.sin(now / 90);
+    } else if (analyser && freqData) {
+      analyser.getByteFrequencyData(freqData);
+      const sr = audioCtx.sampleRate;
+      const binHz = sr / analyser.fftSize;
+      const band = (lo, hi) => {
+        const a = Math.floor(lo / binHz);
+        const b = Math.min(freqData.length - 1, Math.ceil(hi / binHz));
+        let sum = 0, n = 0;
+        for (let i = a; i <= b; i++) { sum += freqData[i]; n++; }
+        return n ? sum / (n * 255) : 0;
+      };
+      const rawBass = band(40, 140);
+      state.bass = state.bass * 0.7 + rawBass * 0.3;
+      state.mids = state.mids * 0.75 + band(140, 1200) * 0.25;
+      state.highs = state.highs * 0.75 + band(1200, 6000) * 0.25;
+      state.kick = Math.min(1, Math.max(0, rawBass - state.bass * 0.85) * 2.2);
+    }
+    el.micMeter.style.width = `${Math.round(state.bass * 100)}%`;
+
+    if (state.kick > 0.75 && now - state.lastKick > 180) {
+      state.lastKick = now;
+      if (state.layout === "ripple" || state.preset === "ripple" || state.preset === "party") {
+        state.ripples.push({ col: state.orbit * state.cols, age: 0 });
+        if (state.ripples.length > 4) state.ripples.shift();
+      }
+    }
+  }
+
+  function ledHue(col, twin = false) {
+    const n = state.cols;
+    switch (state.color) {
+      case "fixed":
+        return twin ? (state.fixedHue + 180) % 360 : state.fixedHue;
+      case "cycle":
+        return twin ? (state.huePhase + 140) % 360 : state.huePhase;
+      case "rainbow":
+        return (state.huePhase + (col / n) * 360) % 360;
+      case "dual":
+      default:
+        return twin ? (state.fixedHue + 160 + state.huePhase * 0.2) % 360 : (state.fixedHue + state.huePhase * 0.15) % 360;
+    }
+  }
+
+  function energyAt(row, col) {
+    const rows = state.rows;
+    const cols = state.cols;
+    const tRow = (row + 0.5) / rows;
+    const floor = state.floor;
+    const pos = state.orbit * cols;
+    const kick = state.kick;
+    const bass = state.bass;
+
+    if (state.dim) return floor * 0.3;
+
+    let energy = floor;
+    let twin = false;
+
+    switch (state.layout) {
+      case "twins": {
+        const p1 = pos;
+        const p2 = (pos + cols / 2) % cols;
+        const d1 = angDist(col, p1, cols);
+        const d2 = angDist(col, p2, cols);
+        const trail = 2.2 + state.mids * 1.5;
+        const e1 = Math.exp(-(d1 * d1) / (trail * 0.35)) * (d1 < trail ? 1 : 0);
+        const e2 = Math.exp(-(d2 * d2) / (trail * 0.35)) * (d2 < trail ? 1 : 0);
+        twin = e2 > e1;
+        const head = Math.max(e1, e2);
+        const punch = 0.85 + 0.15 * Math.max(kick, bass);
+        energy = Math.min(1, floor + head * punch * (1 - floor));
+        break;
+      }
+      case "heartbeat": {
+        // dual-thump-ish: pulse peaks, bloom from wrist outward
+        const beat = Math.pow(Math.max(0, Math.sin(state.pulse * Math.PI * 2)), 1.6);
+        const thump = Math.max(beat, kick * 0.9);
+        const bloomR = 0.2 + thump * 0.9;
+        const edge = Math.max(0, 1 - Math.max(0, tRow - bloomR) * 4.5);
+        const body = 0.25 + thump * 0.75;
+        energy = Math.min(1, floor + body * edge * (0.7 + 0.3 * (1 - tRow * 0.4)));
+        break;
+      }
+      case "scanner": {
+        const d = angDist(col, pos, cols);
+        const gate = d < 0.55 ? 1 : d < 1.2 ? 1 - (d - 0.55) / 0.65 : 0;
+        energy = Math.min(1, floor + gate * (0.9 + 0.1 * kick) * (1 - floor));
+        break;
+      }
+      case "ripple": {
+        let rip = 0;
+        for (const r of state.ripples) {
+          const radius = r.age * cols * 0.55;
+          const d = angDist(col, r.col, cols);
+          const ring = Math.exp(-((d - radius) * 2.4) ** 2);
+          const fade = Math.max(0, 1 - r.age);
+          rip = Math.max(rip, ring * fade);
+        }
+        energy = Math.min(1, floor + rip * (0.85 + 0.15 * bass));
+        break;
+      }
+      case "ember": {
+        const crawl = (tRow + state.emberPhase + Math.sin(col * 0.7 + state.orbit * 6) * 0.08) % 1;
+        const hot = Math.exp(-((crawl - 0.55) * 4.5) ** 2);
+        const wander = 0.35 + 0.65 * Math.exp(-(angDist(col, pos, cols) / (cols * 0.35)) ** 2);
+        const flick = 0.75 + 0.25 * (state.highs > 0.3 ? Math.random() : 0.5 + 0.5 * Math.sin(col + state.huePhase));
+        energy = Math.min(1, floor + hot * wander * flick * (0.7 + 0.3 * bass));
+        break;
+      }
+      case "aurora": {
+        const shear = Math.sin((col / cols) * Math.PI * 2 + state.orbit * Math.PI * 2) * 0.5 + 0.5;
+        const curtain = 0.35 + 0.65 * Math.sin(tRow * Math.PI + shear * 2 + state.huePhase * 0.02);
+        const soft = Math.max(0, curtain) * (0.55 + 0.45 * (0.5 + 0.5 * Math.sin(state.pulse * Math.PI * 2)));
+        energy = Math.min(1, floor + soft * 0.85);
+        break;
+      }
+      case "orbit":
+      default: {
+        const d = angDist(col, pos, cols);
+        const trail = 2.4 + state.mids * 1.8;
+        const head = Math.exp(-(d * d) / (0.45)) * (d < 0.9 ? 1.15 : 1);
+        const wake = d < trail ? Math.exp(-(d * d) / (trail * 0.55)) * 0.75 : 0;
+        const punch = 0.85 + 0.15 * Math.max(kick, bass);
+        energy = Math.min(1, floor + Math.max(head, wake) * punch * (1 - floor));
+        break;
+      }
+    }
+
+    // cuff glitter on highs for party-ish looks
+    if (!state.dim && state.highs > 0.4 && tRow > 0.7 && Math.random() < state.highs * 0.04) {
+      energy = Math.min(1, energy + 0.55);
+    }
+
+    return { energy, twin };
+  }
+
+  function colorFor(row, col, twin) {
+    if (state.layout === "ember") {
+      // warm fire ramp
+      const e = energyAt(row, col).energy;
+      const h = 10 + e * 35 + state.huePhase * 0.05;
+      return hsvToRgb(h, 1, Math.min(1, e * state.brightness));
+    }
+    if (state.layout === "aurora") {
+      const h = (180 + (col / state.cols) * 100 + state.huePhase + row * 8) % 360;
+      const e = energyAt(row, col).energy * state.brightness;
+      return hsvToRgb(h, 0.75, Math.min(1, e));
+    }
+    const h = ledHue(col, twin);
+    const e = energyAt(row, col).energy * state.brightness;
+    return hsvToRgb(h, 1, Math.min(1, e));
+  }
+
+  function renderFrame(now) {
+    const dt = Math.min(0.05, (now - state.lastT) / 1000);
+    state.lastT = now;
+
+    tickAudio(now);
+
+    const oSpeed = 0.15 + state.orbitSpeed * 1.1;
+    state.orbit = (state.orbit + dt * oSpeed) % 1;
+    if (state.layout === "scanner" && state.kick > 0.85) {
+      state.orbit = (state.orbit + 0.08) % 1;
+    }
+
+    state.pulse = (state.pulse + dt * (0.4 + state.pulseSpeed * 1.6)) % 1;
+    state.huePhase = (state.huePhase + dt * (6 + state.hueSpeed * 80)) % 360;
+    state.emberPhase = (state.emberPhase + dt * (0.08 + state.pulseSpeed * 0.25)) % 1;
+
+    for (const r of state.ripples) r.age += dt * (0.7 + state.pulseSpeed);
+    state.ripples = state.ripples.filter((r) => r.age < 1.2);
+
+    const W = canvas.width;
+    const H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+    const bg = ctx.createLinearGradient(0, 0, 0, H);
+    bg.addColorStop(0, "#252830");
+    bg.addColorStop(1, "#171a22");
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
+
+    const rows = state.rows;
+    const cols = state.cols;
+
+    // Cylinder preview
+    const cylCx = W * 0.5;
+    const cylCy = H * 0.28;
+    const cylRx = Math.min(W * 0.38, 210);
+    const cylRy = 28 + rows * 2.2;
+    const bandH = 70 + rows * 10;
+
+    ctx.fillStyle = "#1a1d24";
+    ctx.beginPath();
+    ctx.ellipse(cylCx, cylCy + bandH * 0.15, cylRx + 18, cylRy + 10, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = "rgba(154,149,140,0.25)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(cylCx, cylCy - 8, cylRx * 0.55, 16, 0, 0, Math.PI * 2);
+    ctx.stroke();
+
+    for (let r = 0; r < rows; r++) {
+      const t = rows === 1 ? 0 : r / (rows - 1);
+      const y = cylCy + t * bandH;
+      const rx = cylRx * (1 - t * 0.06);
+      const ry = cylRy * (1 - t * 0.05);
+      for (let c = 0; c < cols; c++) {
+        const ang = (c / cols) * Math.PI * 2 - Math.PI / 2;
+        const depth = Math.cos(ang);
+        if (depth < -0.15) continue;
+        const x = cylCx + Math.sin(ang) * rx;
+        const yy = y + Math.cos(ang) * ry * 0.15;
+        const { twin } = energyAt(r, c);
+        const [rr, gg, bb] = colorFor(r, c, twin);
+        const alpha = 0.35 + 0.65 * Math.max(0, depth);
+        const rad = 3.2 + (1 - Math.abs(depth)) * 1.2;
+        ctx.beginPath();
+        ctx.fillStyle = `rgba(${rr},${gg},${bb},${alpha})`;
+        ctx.arc(x, yy, rad, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // Unrolled grid
+    const padX = 48;
+    const padTop = H * 0.58;
+    const gridW = W - padX * 2;
+    const gridH = H * 0.34;
+    const cellW = gridW / cols;
+    const cellH = gridH / rows;
+
+    ctx.fillStyle = "rgba(154,149,140,0.7)";
+    ctx.font = "12px Avenir Next, Segoe UI, sans-serif";
+    ctx.fillText("Unrolled — row 0 wrist → cuff", padX, padTop - 12);
+
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const { twin } = energyAt(r, c);
+        const [rr, gg, bb] = colorFor(r, c, twin);
+        const x = padX + c * cellW;
+        const y = padTop + r * cellH;
+        const inset = Math.max(1, Math.min(cellW, cellH) * 0.18);
+        ctx.fillStyle = `rgb(${rr},${gg},${bb})`;
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(x + inset, y + inset, cellW - inset * 2, cellH - inset * 2, 3);
+        else ctx.rect(x + inset, y + inset, cellW - inset * 2, cellH - inset * 2);
+        ctx.fill();
+      }
+    }
+
+    ctx.fillStyle = "rgba(154,149,140,0.55)";
+    ctx.font = "11px Avenir Next, Segoe UI, sans-serif";
+    ctx.fillText(`layout:${state.layout}  color:${state.color}  orbit:${state.orbit.toFixed(2)}`, padX, H - 18);
+
+    requestAnimationFrame(renderFrame);
+  }
+
+  buildPresetButtons();
+  syncLabels();
+  applyPreset(PRESETS.find((p) => p.id === "twins"));
+  requestAnimationFrame(renderFrame);
+})();
+  </script>
+</body>
+</html>
