@@ -6,7 +6,8 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <title>LED Wrist Band Sim</title>
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
-  <meta name="sim-build" content="2026-08-03-wrist-native" />
+  <meta name="sim-build" content="2026-08-03-v12-heartbeat-bass" />
+  <meta http-equiv="Expires" content="0" />
   <style>
     :root {
       --bg: #12141a;
@@ -171,8 +172,8 @@
 </head>
 <body>
   <div class="stage">
-    <h1>LED Wrist Band</h1>
-    <p class="sub">Cylinder jewelry looks — orbit, heartbeat, scanner, ripple. Own concept, not jacket ports.</p>
+    <h1>LED Wrist Band <span style="color:var(--accent);font-size:0.7em;font-weight:500">v12</span></h1>
+    <p class="sub">Wrist + cuff preview with LED rings — including oscilloscope time base.</p>
     <div class="mobile-presets" id="mobilePresets"></div>
     <div id="micGate" class="mic-gate" role="button" tabindex="0">
       <div class="mic-gate-card">
@@ -206,6 +207,7 @@
       <button type="button" data-layout="ripple">Ripple</button>
       <button type="button" data-layout="ember">Ember</button>
       <button type="button" data-layout="aurora">Aurora</button>
+      <button type="button" data-layout="scope">Scope</button>
     </div>
 
     <h2>Color</h2>
@@ -236,6 +238,17 @@
       <input id="bright" type="range" min="10" max="100" value="55" />
     </label>
 
+    <h2>Scope</h2>
+    <label>Time base <span class="val" id="vScopeSpeed">50%</span>
+      <input id="scopeSpeed" type="range" min="1" max="100" value="50" />
+    </label>
+    <div class="row" id="scopeSpeedPresets">
+      <button type="button" data-scope-speed="15">Slow</button>
+      <button type="button" data-scope-speed="50" class="active">Normal</button>
+      <button type="button" data-scope-speed="85">Fast</button>
+    </div>
+    <p class="hint">Scroll speed of the scope trace (left → right). Flat until Mic hears signal.</p>
+
     <h2>Audio</h2>
     <div class="row" id="bassSourceRow">
       <button type="button" id="btnBassMic">Mic</button>
@@ -257,10 +270,11 @@
   const PRESETS = [
     { id: "orbit", name: "Orbit", layout: "orbit", color: "fixed", floor: 4, hueSpeed: 0, orbitSpeed: 42, pulseSpeed: 30, fixedHue: 200, dim: false },
     { id: "twins", name: "Twins", layout: "twins", color: "dual", floor: 3, hueSpeed: 25, orbitSpeed: 48, pulseSpeed: 30, fixedHue: 200, dim: false },
-    { id: "heartbeat", name: "Heartbeat", layout: "heartbeat", color: "cycle", floor: 8, hueSpeed: 18, orbitSpeed: 10, pulseSpeed: 55, fixedHue: 330, dim: false },
+    { id: "heartbeat", name: "Heartbeat", layout: "heartbeat", color: "fixed", floor: 0, hueSpeed: 0, orbitSpeed: 0, pulseSpeed: 40, fixedHue: 330, dim: false },
     { id: "scanner", name: "Scanner", layout: "scanner", color: "fixed", floor: 3, hueSpeed: 0, orbitSpeed: 55, pulseSpeed: 20, fixedHue: 185, dim: false },
     { id: "ripple", name: "Ripple", layout: "ripple", color: "rainbow", floor: 4, hueSpeed: 40, orbitSpeed: 20, pulseSpeed: 40, fixedHue: 200, dim: false },
     { id: "ember", name: "Ember", layout: "ember", color: "fixed", floor: 5, hueSpeed: 12, orbitSpeed: 18, pulseSpeed: 25, fixedHue: 25, dim: false },
+    { id: "scope", name: "Scope", layout: "scope", color: "fixed", floor: 2, hueSpeed: 0, orbitSpeed: 0, pulseSpeed: 55, fixedHue: 125, dim: false },
     { id: "party", name: "Party", layout: "twins", color: "dual", floor: 3, hueSpeed: 55, orbitSpeed: 60, pulseSpeed: 50, fixedHue: 280, dim: false },
     { id: "off", name: "Off / dim", layout: "orbit", color: "fixed", floor: 2, hueSpeed: 0, orbitSpeed: 0, pulseSpeed: 0, fixedHue: 200, dim: true },
   ];
@@ -277,6 +291,8 @@
     vOrbitSpeed: document.getElementById("vOrbitSpeed"),
     pulseSpeed: document.getElementById("pulseSpeed"),
     vPulseSpeed: document.getElementById("vPulseSpeed"),
+    scopeSpeed: document.getElementById("scopeSpeed"),
+    vScopeSpeed: document.getElementById("vScopeSpeed"),
     bright: document.getElementById("bright"),
     vBright: document.getElementById("vBright"),
     hueSpeed: document.getElementById("hueSpeed"),
@@ -300,6 +316,7 @@
     floor: 0.04,
     orbitSpeed: 0.4,
     pulseSpeed: 0.35,
+    scopeSpeed: 0.5,
     brightness: 0.55,
     hueSpeed: 0.35,
     fixedHue: 200,
@@ -317,11 +334,19 @@
     emberPhase: 0,
     lastKick: 0,
     lastT: performance.now(),
+    scopeBuf: null,
+    scopePhase: 0,
+    scopeAcc: 0,
+    heartEnv: 0,
+    heartEnv2: 0,
+    heartDubPending: false,
+    lastHeartTrig: 0,
   };
 
   let audioCtx = null;
   let analyser = null;
   let freqData = null;
+  let timeData = null;
 
   function hsvToRgb(h, s, v) {
     h = ((h % 360) + 360) % 360;
@@ -370,6 +395,13 @@
     document.querySelectorAll("[data-preset]").forEach((btn) => {
       btn.classList.toggle("active", btn.dataset.preset === p.id);
     });
+    if (p.layout === "scope") {
+      ensureScopeBuf(state.cols);
+      state.scopeBuf.fill(0);
+      if (state.bassSource !== "mic") {
+        el.micStatus.textContent = "Scope idle (flat line) — enable Mic for waveform";
+      }
+    }
   }
 
   function buildPresetButtons() {
@@ -392,6 +424,7 @@
     state.floor = +el.floor.value / 100;
     state.orbitSpeed = +el.orbitSpeed.value / 100;
     state.pulseSpeed = +el.pulseSpeed.value / 100;
+    state.scopeSpeed = +el.scopeSpeed.value / 100;
     state.brightness = +el.bright.value / 100;
     state.hueSpeed = +el.hueSpeed.value / 100;
     state.fixedHue = +el.fixedHue.value;
@@ -401,13 +434,36 @@
     el.vFloor.textContent = `${el.floor.value}%`;
     el.vOrbitSpeed.textContent = `${el.orbitSpeed.value}%`;
     el.vPulseSpeed.textContent = `${el.pulseSpeed.value}%`;
+    el.vScopeSpeed.textContent = `${el.scopeSpeed.value}%`;
     el.vBright.textContent = `${el.bright.value}%`;
     el.vHueSpeed.textContent = `${el.hueSpeed.value}%`;
     el.vFixedHue.textContent = `${el.fixedHue.value}°`;
   }
 
-  ["rows", "cols", "floor", "orbitSpeed", "pulseSpeed", "bright", "hueSpeed", "fixedHue"].forEach((id) => {
-    el[id].addEventListener("input", syncLabels);
+  function setScopeSpeed(pct) {
+    el.scopeSpeed.value = pct;
+    state.scopeSpeed = pct / 100;
+    el.vScopeSpeed.textContent = `${pct}%`;
+    document.querySelectorAll("#scopeSpeedPresets button").forEach((btn) => {
+      btn.classList.toggle("active", +btn.dataset.scopeSpeed === +pct);
+    });
+  }
+
+  ["rows", "cols", "floor", "orbitSpeed", "pulseSpeed", "scopeSpeed", "bright", "hueSpeed", "fixedHue"].forEach((id) => {
+    el[id].addEventListener("input", () => {
+      syncLabels();
+      if (id === "scopeSpeed") {
+        document.querySelectorAll("#scopeSpeedPresets button").forEach((btn) => {
+          btn.classList.toggle("active", +btn.dataset.scopeSpeed === +el.scopeSpeed.value);
+        });
+      }
+    });
+  });
+
+  document.getElementById("scopeSpeedPresets").addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-scope-speed]");
+    if (!btn) return;
+    setScopeSpeed(+btn.dataset.scopeSpeed);
   });
 
   document.getElementById("layoutRow").addEventListener("click", (e) => {
@@ -415,6 +471,13 @@
     if (!btn) return;
     state.layout = btn.dataset.layout;
     setActiveGroup(document.getElementById("layoutRow"), "layout", state.layout);
+    if (state.layout === "scope") {
+      ensureScopeBuf(state.cols);
+      state.scopeBuf.fill(0);
+      if (state.bassSource !== "mic") {
+        el.micStatus.textContent = "Scope idle (flat line) — enable Mic for waveform";
+      }
+    }
   });
 
   document.getElementById("colorRow").addEventListener("click", (e) => {
@@ -433,15 +496,18 @@
       });
       const src = audioCtx.createMediaStreamSource(micStream);
       analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 1024;
+      analyser.fftSize = 2048;
       analyser.smoothingTimeConstant = 0.65;
       src.connect(analyser);
       freqData = new Uint8Array(analyser.frequencyBinCount);
+      timeData = new Uint8Array(analyser.fftSize);
       state.bassSource = "mic";
       el.btnBassMic.classList.add("active");
       el.btnBassDemo.classList.remove("active");
       el.micGate.classList.remove("show");
-      el.micStatus.textContent = "Mic on — relative bass / kick";
+      el.micStatus.textContent = state.layout === "scope"
+        ? "Mic on — scope shows live waveform"
+        : "Mic on — relative bass / kick";
     } catch {
       el.micStatus.textContent = "Mic failed — using demo beat";
       state.bassSource = "demo";
@@ -458,7 +524,9 @@
     el.btnBassDemo.classList.add("active");
     el.btnBassMic.classList.remove("active");
     el.micGate.classList.remove("show");
-    el.micStatus.textContent = "Demo beat ~120 BPM";
+    el.micStatus.textContent = state.layout === "scope"
+      ? "Scope idle (flat line) — enable Mic for waveform"
+      : "Demo beat ~120 BPM";
   });
   el.micGate.addEventListener("click", enableMic);
 
@@ -523,7 +591,7 @@
     const kick = state.kick;
     const bass = state.bass;
 
-    if (state.dim) return floor * 0.3;
+    if (state.dim) return { energy: floor * 0.3, twin: false };
 
     let energy = floor;
     let twin = false;
@@ -544,13 +612,16 @@
         break;
       }
       case "heartbeat": {
-        // dual-thump-ish: pulse peaks, bloom from wrist outward
-        const beat = Math.pow(Math.max(0, Math.sin(state.pulse * Math.PI * 2)), 1.6);
-        const thump = Math.max(beat, kick * 0.9);
-        const bloomR = 0.2 + thump * 0.9;
-        const edge = Math.max(0, 1 - Math.max(0, tRow - bloomR) * 4.5);
-        const body = 0.25 + thump * 0.75;
-        energy = Math.min(1, floor + body * edge * (0.7 + 0.3 * (1 - tRow * 0.4)));
+        // Dark when quiet — only bloom on bass hits (no free-running pulse colour)
+        const thump = Math.max(state.heartEnv, state.heartEnv2 * 0.65);
+        if (thump < 0.03) {
+          energy = 0;
+          break;
+        }
+        const bloomR = 0.12 + thump * 0.95;
+        const edge = Math.max(0, 1 - Math.max(0, tRow - bloomR) * 4.8);
+        const body = thump * (0.55 + 0.45 * (1 - tRow * 0.35));
+        energy = Math.min(1, body * edge);
         break;
       }
       case "scanner": {
@@ -564,7 +635,7 @@
         for (const r of state.ripples) {
           const radius = r.age * cols * 0.55;
           const d = angDist(col, r.col, cols);
-          const ring = Math.exp(-((d - radius) * 2.4) ** 2);
+          const ring = Math.exp(-Math.pow((d - radius) * 2.4, 2));
           const fade = Math.max(0, 1 - r.age);
           rip = Math.max(rip, ring * fade);
         }
@@ -573,8 +644,8 @@
       }
       case "ember": {
         const crawl = (tRow + state.emberPhase + Math.sin(col * 0.7 + state.orbit * 6) * 0.08) % 1;
-        const hot = Math.exp(-((crawl - 0.55) * 4.5) ** 2);
-        const wander = 0.35 + 0.65 * Math.exp(-(angDist(col, pos, cols) / (cols * 0.35)) ** 2);
+        const hot = Math.exp(-Math.pow((crawl - 0.55) * 4.5, 2));
+        const wander = 0.35 + 0.65 * Math.exp(-Math.pow(angDist(col, pos, cols) / (cols * 0.35), 2));
         const flick = 0.75 + 0.25 * (state.highs > 0.3 ? Math.random() : 0.5 + 0.5 * Math.sin(col + state.huePhase));
         energy = Math.min(1, floor + hot * wander * flick * (0.7 + 0.3 * bass));
         break;
@@ -584,6 +655,16 @@
         const curtain = 0.35 + 0.65 * Math.sin(tRow * Math.PI + shear * 2 + state.huePhase * 0.02);
         const soft = Math.max(0, curtain) * (0.55 + 0.45 * (0.5 + 0.5 * Math.sin(state.pulse * Math.PI * 2)));
         energy = Math.min(1, floor + soft * 0.85);
+        break;
+      }
+      case "scope": {
+        // Single thin trace only — no separate midrail / second line
+        const buf = state.scopeBuf;
+        const s = buf && buf.length === cols ? buf[col] : 0;
+        const targetRow = (0.5 - s * 0.48) * (rows - 1);
+        const dist = Math.abs(row - targetRow);
+        const trace = Math.exp(-Math.pow(dist * 2.4, 2));
+        energy = dist < 1.25 ? Math.min(1, 0.08 * floor + trace * 0.98) : floor * 0.15;
         break;
       }
       case "orbit":
@@ -598,29 +679,280 @@
       }
     }
 
-    // cuff glitter on highs for party-ish looks
-    if (!state.dim && state.highs > 0.4 && tRow > 0.7 && Math.random() < state.highs * 0.04) {
-      energy = Math.min(1, energy + 0.55);
+    // cuff glitter on highs (skip for dark-when-quiet modes)
+    if (!state.dim && state.layout !== "heartbeat" && state.layout !== "scope"
+        && state.highs > 0.4 && tRow > 0.7) {
+      const spark = ((row * 31 + col * 17 + (state.huePhase | 0)) % 100) / 100;
+      if (spark < state.highs * 0.08) energy = Math.min(1, energy + 0.55);
     }
 
     return { energy, twin };
   }
 
-  function colorFor(row, col, twin) {
+  function colorFor(row, col, twin, energy) {
+    const e = Math.min(1, energy * state.brightness);
     if (state.layout === "ember") {
-      // warm fire ramp
-      const e = energyAt(row, col).energy;
-      const h = 10 + e * 35 + state.huePhase * 0.05;
-      return hsvToRgb(h, 1, Math.min(1, e * state.brightness));
+      const h = 10 + energy * 35 + state.huePhase * 0.05;
+      return hsvToRgb(h, 1, e);
     }
     if (state.layout === "aurora") {
       const h = (180 + (col / state.cols) * 100 + state.huePhase + row * 8) % 360;
-      const e = energyAt(row, col).energy * state.brightness;
-      return hsvToRgb(h, 0.75, Math.min(1, e));
+      return hsvToRgb(h, 0.75, e);
     }
-    const h = ledHue(col, twin);
-    const e = energyAt(row, col).energy * state.brightness;
-    return hsvToRgb(h, 1, Math.min(1, e));
+    if (state.layout === "scope") {
+      // Classic P31 phosphor green; Fixed uses slider, else slight hue drift
+      const h = state.color === "fixed" ? state.fixedHue : ledHue(col, twin);
+      return hsvToRgb(h, 0.95, e);
+    }
+    return hsvToRgb(ledHue(col, twin), 1, e);
+  }
+
+  function ensureScopeBuf(cols) {
+    if (!state.scopeBuf || state.scopeBuf.length !== cols) {
+      state.scopeBuf = new Float32Array(cols);
+    }
+  }
+
+  /** Heartbeat: bloom only on bass kicks; black when quiet. */
+  function tickHeartbeat(now, dt) {
+    const trig = state.kick > 0.42 || (state.bass > 0.62 && state.kick > 0.2);
+    if (trig && now - state.lastHeartTrig > 170) {
+      state.lastHeartTrig = now;
+      state.heartEnv = Math.min(1, 0.8 + state.kick * 0.35);
+      state.heartEnv2 = 0;
+      state.heartDubPending = true;
+    }
+    if (state.heartDubPending && now - state.lastHeartTrig > 110) {
+      state.heartEnv2 = 0.55;
+      state.heartDubPending = false;
+    }
+    const decay = 3.4 + state.pulseSpeed * 2.2;
+    state.heartEnv = Math.max(0, state.heartEnv - dt * decay);
+    state.heartEnv2 = Math.max(0, state.heartEnv2 - dt * decay);
+    if (state.bass < 0.1 && state.kick < 0.06) {
+      state.heartEnv *= 0.8;
+      state.heartEnv2 *= 0.8;
+    }
+  }
+
+  /** Scope: flat mid-line until mic hears signal; then live time-domain waveform. */
+  function tickScopeWaveform(dt) {
+    const cols = state.cols;
+    ensureScopeBuf(cols);
+    const buf = state.scopeBuf;
+    // Time base control: Slow ≈ crawl, Fast ≈ quick scroll
+    const samplesPerSec = 6 + state.scopeSpeed * 160;
+    state.scopeAcc += dt * samplesPerSec;
+    let n = Math.floor(state.scopeAcc);
+    if (n < 1) return;
+    state.scopeAcc -= n;
+    n = Math.min(n, 10);
+
+    const micLive = state.bassSource === "mic" && analyser && timeData;
+    let rms = 0;
+    if (micLive) {
+      analyser.getByteTimeDomainData(timeData);
+      let sumSq = 0;
+      for (let i = 0; i < timeData.length; i++) {
+        const v = (timeData[i] - 128) / 128;
+        sumSq += v * v;
+      }
+      rms = Math.sqrt(sumSq / timeData.length);
+    }
+    // gate: ignore mic noise floor → keep a straight line
+    const silent = !micLive || rms < 0.025;
+
+    for (let i = 0; i < n; i++) {
+      let s = 0;
+      if (!silent) {
+        // walk through the capture buffer for successive scope samples
+        const idx = Math.floor(((state.scopePhase % 1) + i / n) * (timeData.length - 1));
+        s = (timeData[idx] - 128) / 128;
+        // gentle auto-gain so quiet speech still draws
+        const gain = Math.min(4.5, 0.9 / Math.max(rms, 0.04));
+        s = Math.max(-1, Math.min(1, s * gain));
+      }
+      buf.copyWithin(0, 1);
+      buf[cols - 1] = s;
+    }
+    state.scopePhase = (state.scopePhase + n / Math.max(1, timeData ? timeData.length : cols)) % 1;
+  }
+
+  function sampleGrid() {
+    const rows = state.rows;
+    const cols = state.cols;
+    const grid = [];
+    for (let r = 0; r < rows; r++) {
+      const row = [];
+      for (let c = 0; c < cols; c++) {
+        const { energy, twin } = energyAt(r, c);
+        row.push({ energy, twin, rgb: colorFor(r, c, twin, energy) });
+      }
+      grid.push(row);
+    }
+    return grid;
+  }
+
+  function drawWristBand(W, H, grid) {
+    const rows = state.rows;
+    const cols = state.cols;
+
+    // Forearm stub + cuff band (side view-ish cylinder on arm)
+    const cx = W * 0.5;
+    const armTop = H * 0.06;
+    const armBot = H * 0.52;
+    const armRx = Math.min(W * 0.22, 120);
+    const bandTop = H * 0.18;
+    const bandH = Math.min(H * 0.26, 40 + rows * 14);
+    const bandRx = armRx + 28;
+    const bandRy = 22;
+
+    // Arm (skin)
+    const skin = ctx.createLinearGradient(cx - armRx, 0, cx + armRx, 0);
+    skin.addColorStop(0, "#6a4a3a");
+    skin.addColorStop(0.45, "#c4a088");
+    skin.addColorStop(0.55, "#d4b49a");
+    skin.addColorStop(1, "#6a4a3a");
+    ctx.fillStyle = skin;
+    ctx.beginPath();
+    ctx.moveTo(cx - armRx * 0.85, armTop);
+    ctx.lineTo(cx + armRx * 0.85, armTop);
+    ctx.lineTo(cx + armRx, armBot);
+    ctx.lineTo(cx - armRx, armBot);
+    ctx.closePath();
+    ctx.fill();
+
+    // Wrist oval at bottom of arm
+    ctx.fillStyle = "#b8957a";
+    ctx.beginPath();
+    ctx.ellipse(cx, armBot, armRx, 18, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(0,0,0,0.25)";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Hand hint below wrist
+    ctx.fillStyle = "#c4a088";
+    ctx.beginPath();
+    ctx.ellipse(cx, armBot + 28, armRx * 0.72, 22, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Fabric band body (lycra-ish white/grey sleeve)
+    const fabric = ctx.createLinearGradient(cx - bandRx, 0, cx + bandRx, 0);
+    fabric.addColorStop(0, "#8a8d96");
+    fabric.addColorStop(0.35, "#e8e6e1");
+    fabric.addColorStop(0.5, "#f4f2ed");
+    fabric.addColorStop(0.65, "#e8e6e1");
+    fabric.addColorStop(1, "#8a8d96");
+
+    ctx.fillStyle = fabric;
+    ctx.beginPath();
+    ctx.ellipse(cx, bandTop, bandRx, bandRy, 0, Math.PI, 0, true);
+    ctx.lineTo(cx + bandRx * 0.96, bandTop + bandH);
+    ctx.ellipse(cx, bandTop + bandH, bandRx * 0.96, bandRy * 0.9, 0, 0, Math.PI, false);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.strokeStyle = "rgba(40,44,54,0.45)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(cx, bandTop, bandRx, bandRy, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.ellipse(cx, bandTop + bandH, bandRx * 0.96, bandRy * 0.9, 0, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Small control box on outer edge
+    const boxX = cx + bandRx * 0.55;
+    const boxY = bandTop + bandH * 0.35;
+    ctx.fillStyle = "#2a303c";
+    ctx.strokeStyle = "#6ec8ff";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.roundRect ? ctx.roundRect(boxX, boxY, 36, 28, 5) : ctx.rect(boxX, boxY, 36, 28);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#9a958c";
+    ctx.font = "9px Avenir Next, Segoe UI, sans-serif";
+    ctx.fillText("XIAO", boxX + 6, boxY + 17);
+
+    // LED rings on the band surface (front half)
+    for (let r = 0; r < rows; r++) {
+      const t = rows === 1 ? 0.5 : r / (rows - 1);
+      const y = bandTop + 8 + t * (bandH - 16);
+      const rx = bandRx * (0.92 - t * 0.04);
+      const ry = bandRy * (0.75 - t * 0.05);
+      for (let c = 0; c < cols; c++) {
+        const ang = (c / cols) * Math.PI * 2 - Math.PI / 2;
+        const depth = Math.cos(ang);
+        if (depth < -0.05) continue;
+        const x = cx + Math.sin(ang) * rx;
+        const yy = y + Math.cos(ang) * ry * 0.35;
+        const [rr, gg, bb] = grid[r][c].rgb;
+        const e = grid[r][c].energy;
+        const alpha = 0.4 + 0.6 * Math.max(0, depth);
+        const rad = 4.2 + (1 - Math.abs(depth)) * 1.8;
+        if (e > 0.2) {
+          ctx.beginPath();
+          ctx.fillStyle = `rgba(${rr},${gg},${bb},${0.22 * alpha})`;
+          ctx.arc(x, yy, rad * 2.4, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.beginPath();
+        ctx.fillStyle = `rgba(${rr},${gg},${bb},${alpha})`;
+        ctx.arc(x, yy, rad, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    ctx.fillStyle = "rgba(232,230,225,0.75)";
+    ctx.font = "12px Avenir Next, Segoe UI, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("Wrist band — rings stacked up the arm", cx, armTop + 2);
+    ctx.textAlign = "left";
+  }
+
+  function drawUnrolled(W, H, grid) {
+    const rows = state.rows;
+    const cols = state.cols;
+    const padX = 48;
+    const padTop = H * 0.58;
+    const gridW = W - padX * 2;
+    const gridH = H * 0.34;
+    const cellW = gridW / cols;
+    const cellH = gridH / rows;
+
+    ctx.fillStyle = "rgba(154,149,140,0.85)";
+    ctx.font = "12px Avenir Next, Segoe UI, sans-serif";
+    ctx.fillText("Unrolled rings — row 0 wrist → cuff", padX, padTop - 12);
+
+    // panel behind grid
+    ctx.fillStyle = "rgba(18,20,28,0.65)";
+    ctx.strokeStyle = "rgba(62,70,86,0.9)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(padX - 8, padTop - 4, gridW + 16, gridH + 12, 10);
+    else ctx.rect(padX - 8, padTop - 4, gridW + 16, gridH + 12);
+    ctx.fill();
+    ctx.stroke();
+
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const [rr, gg, bb] = grid[r][c].rgb;
+        const x = padX + c * cellW;
+        const y = padTop + r * cellH;
+        const inset = Math.max(1, Math.min(cellW, cellH) * 0.15);
+        ctx.fillStyle = `rgb(${rr},${gg},${bb})`;
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(x + inset, y + inset, cellW - inset * 2, cellH - inset * 2, 3);
+        else ctx.rect(x + inset, y + inset, cellW - inset * 2, cellH - inset * 2);
+        ctx.fill();
+      }
+    }
+
+    ctx.fillStyle = "rgba(154,149,140,0.55)";
+    ctx.font = "11px Avenir Next, Segoe UI, sans-serif";
+    ctx.fillText(`layout:${state.layout}  color:${state.color}  orbit:${state.orbit.toFixed(2)}`, padX, H - 18);
   }
 
   function renderFrame(now) {
@@ -629,15 +961,19 @@
 
     tickAudio(now);
 
-    const oSpeed = 0.15 + state.orbitSpeed * 1.1;
-    state.orbit = (state.orbit + dt * oSpeed) % 1;
-    if (state.layout === "scanner" && state.kick > 0.85) {
-      state.orbit = (state.orbit + 0.08) % 1;
+    if (state.layout !== "scope") {
+      const oSpeed = 0.15 + state.orbitSpeed * 1.1;
+      state.orbit = (state.orbit + dt * oSpeed) % 1;
+      if (state.layout === "scanner" && state.kick > 0.85) {
+        state.orbit = (state.orbit + 0.08) % 1;
+      }
     }
-
     state.pulse = (state.pulse + dt * (0.4 + state.pulseSpeed * 1.6)) % 1;
     state.huePhase = (state.huePhase + dt * (6 + state.hueSpeed * 80)) % 360;
     state.emberPhase = (state.emberPhase + dt * (0.08 + state.pulseSpeed * 0.25)) % 1;
+
+    if (state.layout === "scope") tickScopeWaveform(dt);
+    if (state.layout === "heartbeat") tickHeartbeat(now, dt);
 
     for (const r of state.ripples) r.age += dt * (0.7 + state.pulseSpeed);
     state.ripples = state.ripples.filter((r) => r.age < 1.2);
@@ -651,79 +987,9 @@
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, W, H);
 
-    const rows = state.rows;
-    const cols = state.cols;
-
-    // Cylinder preview
-    const cylCx = W * 0.5;
-    const cylCy = H * 0.28;
-    const cylRx = Math.min(W * 0.38, 210);
-    const cylRy = 28 + rows * 2.2;
-    const bandH = 70 + rows * 10;
-
-    ctx.fillStyle = "#1a1d24";
-    ctx.beginPath();
-    ctx.ellipse(cylCx, cylCy + bandH * 0.15, cylRx + 18, cylRy + 10, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.strokeStyle = "rgba(154,149,140,0.25)";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.ellipse(cylCx, cylCy - 8, cylRx * 0.55, 16, 0, 0, Math.PI * 2);
-    ctx.stroke();
-
-    for (let r = 0; r < rows; r++) {
-      const t = rows === 1 ? 0 : r / (rows - 1);
-      const y = cylCy + t * bandH;
-      const rx = cylRx * (1 - t * 0.06);
-      const ry = cylRy * (1 - t * 0.05);
-      for (let c = 0; c < cols; c++) {
-        const ang = (c / cols) * Math.PI * 2 - Math.PI / 2;
-        const depth = Math.cos(ang);
-        if (depth < -0.15) continue;
-        const x = cylCx + Math.sin(ang) * rx;
-        const yy = y + Math.cos(ang) * ry * 0.15;
-        const { twin } = energyAt(r, c);
-        const [rr, gg, bb] = colorFor(r, c, twin);
-        const alpha = 0.35 + 0.65 * Math.max(0, depth);
-        const rad = 3.2 + (1 - Math.abs(depth)) * 1.2;
-        ctx.beginPath();
-        ctx.fillStyle = `rgba(${rr},${gg},${bb},${alpha})`;
-        ctx.arc(x, yy, rad, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-
-    // Unrolled grid
-    const padX = 48;
-    const padTop = H * 0.58;
-    const gridW = W - padX * 2;
-    const gridH = H * 0.34;
-    const cellW = gridW / cols;
-    const cellH = gridH / rows;
-
-    ctx.fillStyle = "rgba(154,149,140,0.7)";
-    ctx.font = "12px Avenir Next, Segoe UI, sans-serif";
-    ctx.fillText("Unrolled — row 0 wrist → cuff", padX, padTop - 12);
-
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        const { twin } = energyAt(r, c);
-        const [rr, gg, bb] = colorFor(r, c, twin);
-        const x = padX + c * cellW;
-        const y = padTop + r * cellH;
-        const inset = Math.max(1, Math.min(cellW, cellH) * 0.18);
-        ctx.fillStyle = `rgb(${rr},${gg},${bb})`;
-        ctx.beginPath();
-        if (ctx.roundRect) ctx.roundRect(x + inset, y + inset, cellW - inset * 2, cellH - inset * 2, 3);
-        else ctx.rect(x + inset, y + inset, cellW - inset * 2, cellH - inset * 2);
-        ctx.fill();
-      }
-    }
-
-    ctx.fillStyle = "rgba(154,149,140,0.55)";
-    ctx.font = "11px Avenir Next, Segoe UI, sans-serif";
-    ctx.fillText(`layout:${state.layout}  color:${state.color}  orbit:${state.orbit.toFixed(2)}`, padX, H - 18);
+    const grid = sampleGrid();
+    drawWristBand(W, H, grid);
+    drawUnrolled(W, H, grid);
 
     requestAnimationFrame(renderFrame);
   }

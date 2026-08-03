@@ -35,6 +35,7 @@ enum Look : uint8_t {
   LOOK_RIPPLE,
   LOOK_EMBER,
   LOOK_AURORA,
+  LOOK_SCOPE,
   LOOK_COUNT
 };
 
@@ -46,6 +47,7 @@ static const char* LOOK_NAME[] = {
   "Ripple",
   "Ember",
   "Aurora",
+  "Scope",
 };
 
 CRGB leds[NUM_LEDS];
@@ -60,6 +62,10 @@ float demoBass = 0;
 float demoKick = 0;
 float demoMids = 0;
 float demoHighs = 0;
+float heartEnv = 0;
+float heartEnv2 = 0;
+bool heartDubPending = false;
+uint32_t lastHeartTrig = 0;
 
 struct Ripple {
   float col;
@@ -140,6 +146,25 @@ void tickDemoAudio(uint32_t now) {
   huePhase = fmodf(huePhase + 0.35f, 360.0f);
   emberPhase = fmodf(emberPhase + 0.004f, 1.0f);
 
+  // Heartbeat envelopes from bass kicks only
+  bool heartTrig = demoKick > 0.42f || (demoBass > 0.62f && demoKick > 0.2f);
+  if (heartTrig && (now - lastHeartTrig) > 170) {
+    lastHeartTrig = now;
+    heartEnv = min(1.0f, 0.8f + demoKick * 0.35f);
+    heartEnv2 = 0;
+    heartDubPending = true;
+  }
+  if (heartDubPending && (now - lastHeartTrig) > 110) {
+    heartEnv2 = 0.55f;
+    heartDubPending = false;
+  }
+  heartEnv = max(0.0f, heartEnv - 0.055f);
+  heartEnv2 = max(0.0f, heartEnv2 - 0.055f);
+  if (demoBass < 0.1f && demoKick < 0.06f) {
+    heartEnv *= 0.8f;
+    heartEnv2 *= 0.8f;
+  }
+
   for (uint8_t i = 0; i < MAX_RIPPLES; i++) {
     if (!ripples[i].active) continue;
     ripples[i].age += 0.018f;
@@ -205,13 +230,17 @@ void renderLook(uint8_t look, CRGB* out) {
           break;
         }
         case LOOK_HEARTBEAT: {
-          colorMode = 1;
-          float beat = powf(max(0.0f, sinf(pulse * PI * 2.0f)), 1.6f);
-          float thump = max(beat, kick * 0.9f);
-          float bloomR = 0.2f + thump * 0.9f;
-          float edge = max(0.0f, 1.0f - max(0.0f, tRow - bloomR) * 4.5f);
-          float body = 0.25f + thump * 0.75f;
-          energy = min(1.0f, floorL + body * edge * (0.7f + 0.3f * (1.0f - tRow * 0.4f)));
+          colorMode = 0;
+          hue = 330.0f;
+          float thump = max(heartEnv, heartEnv2 * 0.65f);
+          if (thump < 0.03f) {
+            energy = 0;
+            break;
+          }
+          float bloomR = 0.12f + thump * 0.95f;
+          float edge = max(0.0f, 1.0f - max(0.0f, tRow - bloomR) * 4.8f);
+          float body = thump * (0.55f + 0.45f * (1.0f - tRow * 0.35f));
+          energy = min(1.0f, body * edge);
           break;
         }
         case LOOK_SCANNER: {
@@ -249,8 +278,7 @@ void renderLook(uint8_t look, CRGB* out) {
           hue = 10.0f + energy * 35.0f;
           break;
         }
-        case LOOK_AURORA:
-        default: {
+        case LOOK_AURORA: {
           colorMode = 2;
           sat = 0.75f;
           float shear = sinf((c / (float)LEDS_PER_ROW) * PI * 2.0f + orbit * PI * 2.0f) * 0.5f + 0.5f;
@@ -260,9 +288,23 @@ void renderLook(uint8_t look, CRGB* out) {
           hue = fmodf(180.0f + (c / (float)LEDS_PER_ROW) * 100.0f + huePhase + r * 8.0f, 360.0f);
           break;
         }
+        case LOOK_SCOPE:
+        default: {
+          // Flat mid-line until mic path exists (amp = 0). Mic fills samples later.
+          colorMode = 0;
+          hue = 125.0f;
+          sat = 0.95f;
+          float amp = 0.0f;
+          float targetRow = (0.5f - amp * 0.48f) * (ROWS - 1);
+          float dist = fabsf((float)r - targetRow);
+          float trace = expf(-powf(dist * 2.4f, 2));
+          energy = dist < 1.25f ? min(1.0f, 0.08f * floorL + trace * 0.98f) : floorL * 0.15f;
+          break;
+        }
       }
 
-      if (look != LOOK_EMBER && look != LOOK_AURORA && look != LOOK_SCANNER) {
+      if (look != LOOK_EMBER && look != LOOK_AURORA && look != LOOK_SCANNER
+          && look != LOOK_SCOPE && look != LOOK_HEARTBEAT) {
         hue = baseHue(c, twin, colorMode);
       } else if (look == LOOK_SCANNER) {
         // keep fixed cool

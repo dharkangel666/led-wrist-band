@@ -58,7 +58,7 @@ A bright head travels around the wrist with a soft trailing wake. All rows share
 Two heads on opposite sides of the band, counter-rotating. Favourite “jewelry in motion” look.
 
 ### 3. Heartbeat
-Whole band soft-breathes. On each beat, a quick radial bloom: wrist rows flash first, then expand toward the cuff and fall back — like a pulse on the skin.
+**Dark when quiet.** Bass kicks trigger a radial bloom (wrist → cuff) that fades back to black. No free-running colour wash — music only.
 
 ### 4. Scanner
 Thin bright column sweeps around; the rest stays at `floor`. Clean tech / radar feel. Speed tracks `orbitSpeed`; kick can jump the scanner ahead.
@@ -72,7 +72,16 @@ Warm palette crawl: hot spots drift slowly upward through rows (wrist → cuff) 
 ### 7. Aurora
 Soft vertical curtains of colour that slowly shear around the band. Low contrast, dreamy; good for chill / breathe moments.
 
-### 8. Off / dim
+### 8. Scope (oscilloscope time base)
+Full-width scrolling scope — **flat mid-line until the mic hears signal**:
+
+- Idle / no mic / below noise gate → straight horizontal trace (amplitude 0)
+- Mic live → time-domain waveform scrolls left → right into a sample buffer
+- Soft noise gate so room hiss doesn’t wiggle the line
+- **Time base** control (sim slider + Slow/Normal/Fast) sets scroll speed
+- Default colour: P31-style green (`fixedHue` ≈ 125°)
+
+### 9. Off / dim
 Floor-only or near-black.
 
 ## Colour modes
@@ -99,12 +108,13 @@ Sim has sliders. Firmware stays dance-simple.
 |---|------|-----------------|
 | 1 | **Orbit** | Orbit, Fixed cool, low floor |
 | 2 | **Twins** | Twin Orbit, Dual colour |
-| 3 | **Heartbeat** | Heartbeat, Cycle, soft |
+| 3 | **Heartbeat** | Black until bass; bloom on kicks |
 | 4 | **Scanner** | Scanner, Fixed cool |
 | 5 | **Ripple** | Ripple + mic/demo kicks, Rainbow |
 | 6 | **Ember** | Ember, warm Fixed/Cycle |
-| 7 | **Party** | Twin Orbit + mic punch + sparkle highs |
-| 8 | **Off / dim** | Floor only |
+| 7 | **Scope** | Flat line until mic; then live waveform, phosphor green |
+| 8 | **Party** | Twin Orbit + mic punch + sparkle highs |
+| 9 | **Off / dim** | Floor only |
 
 Bake `floor`, speeds, and FFT gains into each preset — not user-facing.
 

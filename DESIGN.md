@@ -84,9 +84,15 @@ Stretch the white layer slightly taut over the matrix. At 8 mm row / 16 mm colum
 - Physical sew target should follow **16 mm col / 8 mm row** and real circumference  
 - Glyph preset: add when icons are chosen  
 
+## Live simulator
+
+- Local: `band-sim.html` (sync to `deploy/index.html` before upload)
+- Live: https://dharkangel.com/led-wrist-band/ (also https://dharkangel.com/led-wristband/)
+- Deploy: upload `deploy/index.html` + `deploy/.htaccess` via main Bluehost FTP (`jezthumy` → `public_html/…`)
+- If the page looks stale, hard-refresh — the title should show **v12** when the current build is loaded
+
 ## Out of scope for now
 
 - Specific glyph set  
 - Mic path on hardware (demo beat in sim/firmware first)  
 - Sync with the jacket  
-- Live web deploy  

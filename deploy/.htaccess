@@ -1,0 +1,8 @@
+# Prevent stale sim HTML/JS from sticking in Cloudflare / browser caches
+<IfModule mod_headers.c>
+  Header set Cache-Control "no-cache, no-store, must-revalidate, max-age=0"
+  Header set Pragma "no-cache"
+  Header set Expires "0"
+</IfModule>
+
+DirectoryIndex index.html
